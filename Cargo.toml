@@ -1,0 +1,17 @@
+[package]
+name = "provenance-rs"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "An open protocol for securely specifying the historical ownership of images, videos, and more."
+authors = ["beyarkay"]
+readme = "README.md"
+
+documentation = "https://docs.rs/provenance-rs"
+repository = "https://github.com/beyarkay/provenance-rs"
+homepage = "https://github.com/beyarkay/provenance-rs"
+categories = []
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
