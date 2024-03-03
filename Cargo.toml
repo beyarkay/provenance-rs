@@ -10,8 +10,5 @@ readme = "README.md"
 documentation = "https://docs.rs/provenance-rs"
 repository = "https://github.com/beyarkay/provenance-rs"
 homepage = "https://github.com/beyarkay/provenance-rs"
-categories = []
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
+categories = ["cryptography", "encoding", "multimedia"]
+keywords = ["protocol", "cryptography", "encoding", "decoding", "metadata"]
