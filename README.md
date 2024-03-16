@@ -23,7 +23,7 @@ With provenance-rs:
 - You see an image of the pope in a sick-ass puffer jacket.
 - 🚨 The image does not have have any provenance 🚨. If the photo is real, why
   did nobody claim ownership for taking it? The photographer could probably
-  have made a lot of money by selling the photo to new websites, so why didn't
+  have made a lot of money by selling the photo to news websites, so why didn't
   they attach their name to the photo using `provenance`?
 - You decide the image is untrustworthy and move on with your day.
 

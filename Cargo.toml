@@ -12,3 +12,8 @@ repository = "https://github.com/beyarkay/provenance-rs"
 homepage = "https://github.com/beyarkay/provenance-rs"
 categories = ["cryptography", "encoding", "multimedia"]
 keywords = ["protocol", "cryptography", "encoding", "decoding", "metadata"]
+
+[dependencies]
+anyhow = "1.0.80"
+kamadak-exif = "0.5.5"
+thiserror = "1.0.57"
