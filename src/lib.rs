@@ -53,6 +53,111 @@
 //! - A way of verifying a signature
 //! - A way of signing a doc
 
+use anyhow::anyhow;
+use base64::{engine::general_purpose::URL_SAFE, Engine as _};
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+
+pub enum SigningMethod {
+    Text,
+}
+
+const PROVENANCE_PREAMBLE: &str = "~~🔏";
+const PROVENANCE_POSTAMBLE: &str = "🔏~~";
+const PROVENANCE_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+fn get_verifying_key_from_url(url: &str) -> VerifyingKey {
+    let mut csprng = rand::rngs::OsRng;
+    let signing_key = SigningKey::generate(&mut csprng);
+    signing_key.verifying_key()
+}
+
+#[derive(Default)]
+pub struct SignatoryDetails {
+    pub url: String,
+    pub details: String,
+}
+
+pub fn verify(signed_doc: &str) -> anyhow::Result<SignatoryDetails> {
+    let split = signed_doc.split_once('\n');
+    let Some((first, doc)) = split else {
+        return Err(anyhow!(
+            "Document has only one line, therefore cannot be signed"
+        ));
+    };
+    let words = first.split(' ').collect::<Vec<_>>();
+    let [preamble, version, url, signature_b64, postamble] = words[..] else {
+        return Err(anyhow!(
+            "Document doens't have five space-separated words in first line"
+        ));
+    };
+    if preamble != PROVENANCE_PREAMBLE {
+        return Err(anyhow!(
+            "Document preamble is '{preamble}', not '{PROVENANCE_PREAMBLE}'"
+        ));
+    }
+    if version != PROVENANCE_VERSION {
+        return Err(anyhow!(
+            "Document version is '{version}', not '{PROVENANCE_VERSION}'"
+        ));
+    }
+    if postamble != PROVENANCE_POSTAMBLE {
+        return Err(anyhow!(
+            "Document postamble is '{postamble}', not '{PROVENANCE_POSTAMBLE}'"
+        ));
+    }
+
+    let binding = URL_SAFE.decode(signature_b64.as_bytes()).unwrap();
+    let signature = Signature::from_slice(binding.as_slice()).unwrap();
+
+    let verifying_key = get_verifying_key_from_url(url);
+    if verifying_key.verify(doc.as_bytes(), &signature).is_err() {
+        return Err(anyhow!(
+            "Document signature '{signature}' could not be verified"
+        ));
+    }
+
+    Ok(SignatoryDetails {
+        url: url.to_string(),
+        details: "".to_string(),
+    })
+
+    // assert!(signing_key.verify(doc.as_bytes(), &signature).is_ok());
+
+    // println!("verifyingKey:\n{:?}", verifying_key.as_bytes());
+    // assert!(verifying_key.verify(doc.as_bytes(), &signature).is_ok());
+
+    // let encoded_signature = URL_SAFE.encode(signature.to_bytes());
+    // println!("Signature base64 {}", encoded_signature);
+
+    // let doc_with_provenance = format!(
+    //     "{PROVENANCE_PREAMBLE}{PROVENANCE_VERSION} {url} {encoded_signature} {PROVENANCE_POSTAMBLE}\n{doc}",
+    // );
+    // true
+}
+pub fn sign(doc: &str, signing_key: SigningKey) -> String {
+    let url = "https://provenance.twitter.com/beyarkay";
+    // println!("SigningKey:\n{:?}", signing_key.as_bytes());
+
+    let signature = signing_key.sign(doc.as_bytes());
+    // println!("Signature:\n{:?}", signature.to_bytes());
+
+    // assert!(signing_key.verify(doc.as_bytes(), &signature).is_ok());
+
+    // let verifying_key = signing_key.verifying_key();
+
+    // println!("verifyingKey:\n{:?}", verifying_key.as_bytes());
+    // assert!(verifying_key.verify(doc.as_bytes(), &signature).is_ok());
+
+    let encoded_signature = URL_SAFE.encode(signature.to_bytes());
+    // println!("Signature base64 {}", encoded_signature);
+
+    let doc_with_provenance = format!(
+        "{PROVENANCE_PREAMBLE} {PROVENANCE_VERSION} {url} {encoded_signature} {PROVENANCE_POSTAMBLE}\n{doc}",
+    );
+    println!("{}", doc_with_provenance);
+    doc_with_provenance
+}
+
 pub trait Signatory {
     type Document;
     type Signature;
@@ -108,6 +213,7 @@ impl Signatory for TextSignatory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rand::rngs::OsRng;
 
     #[test]
     fn doctest() {
@@ -146,5 +252,45 @@ mod tests {
         );
         // Assert the oroginal document was collected
         assert_eq!(doc, "Example text");
+    }
+
+    #[test]
+    fn crypto_sign() {
+        let mut csprng = OsRng;
+        let signing_key = SigningKey::generate(&mut csprng);
+        let _signed = sign("Tsunami warning", signing_key);
+    }
+
+    #[test]
+    fn verifification_fails_if_no_newline() {
+        assert!(verify("document text here").is_err());
+    }
+
+    #[test]
+    fn verifification_fails_if_not_starting_correctly() {
+        assert!(
+            verify(format!("<!PROVENANCE_PREAMBLE!> {PROVENANCE_VERSION} url signature {PROVENANCE_POSTAMBLE}\ndocument text here").as_str())
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn verifification_fails_if_not_ending_correctly() {
+        assert!(
+            verify(format!("{PROVENANCE_PREAMBLE} {PROVENANCE_VERSION} url signature <!PROVENANCE_POSTAMBLE!>\ndocument text here").as_str())
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn verifification_fails_if_bad_version() {
+        assert!(verify(
+            format!("{PROVENANCE_PREAMBLE} <!PROVENANCE_VERSION!> url signature {PROVENANCE_POSTAMBLE}\ndocument text here").as_str(),
+        ).is_err());
+    }
+
+    #[test]
+    fn verifification_fails_if_wrong_number_of_args() {
+        assert!(verify("one two three four\ndocument text here").is_err());
     }
 }

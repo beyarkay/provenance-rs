@@ -15,5 +15,8 @@ keywords = ["protocol", "cryptography", "encoding", "decoding", "metadata"]
 
 [dependencies]
 anyhow = "1.0.80"
+base64 = "0.22.0"
+ed25519-dalek = { version = "2.1.1", features = ["rand_core"] }
 kamadak-exif = "0.5.5"
+rand = "0.8.5"
 thiserror = "1.0.57"
