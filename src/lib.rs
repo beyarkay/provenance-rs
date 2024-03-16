@@ -7,21 +7,7 @@
 //! # Example
 //!
 //! ```
-//! use provenance_rs::{Signatory, TextSignatory};
-//! // Some text to sign
-//! let text = "Example text";
-//!
-//! // Signing the text
-//!
-//! let mut text_signer = TextSignatory::new();
-//! let signed_text = text_signer.sign(text.to_string());
-//! assert_eq!(
-//!     signed_text,
-//!     "=🔏0.1.0=\nExample text",
-//! );
-//!
-//! // Verifying that the signed text came from the right place
-//! assert!(text_signer.verify(&signed_text));
+//! // TODO
 //! ```
 //!
 //! # Why is this useful?
@@ -184,101 +170,10 @@ pub fn sign(doc: &str, signing_key: SigningKey) -> String {
     doc_with_provenance
 }
 
-pub trait Signatory {
-    type Document;
-    type Signature;
-
-    fn sign(&mut self, document: Self::Document) -> Self::Document;
-    fn verify(&mut self, document: &Self::Document) -> bool;
-    fn list_signatures(
-        &mut self,
-        document: Self::Document,
-    ) -> (Vec<Self::Signature>, Self::Document);
-}
-
-#[derive(Default)]
-pub struct TextSignatory;
-
-impl TextSignatory {
-    pub fn new() -> Self {
-        TextSignatory {}
-    }
-}
-
-impl Signatory for TextSignatory {
-    type Document = String;
-    type Signature = String;
-
-    fn sign(&mut self, document: Self::Document) -> Self::Document {
-        format!("=🔏0.1.0=\n{document}")
-    }
-
-    fn verify(&mut self, document: &Self::Document) -> bool {
-        document.starts_with("=🔏0.1.0=\n")
-    }
-
-    fn list_signatures(
-        &mut self,
-        document: Self::Document,
-    ) -> (Vec<Self::Signature>, Self::Document) {
-        let mut signatures = document
-            .split_inclusive("=🔏0.1.0=\n")
-            .map(|s| s.to_owned())
-            .collect::<Vec<String>>();
-
-        let doc = signatures
-            .split_off(signatures.len() - 1)
-            .first()
-            .unwrap()
-            .to_owned();
-
-        (signatures, doc)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use rand::rngs::OsRng;
-
-    #[test]
-    fn doctest() {
-        // Some text to sign
-        let text = "Example text";
-        // Signing the text
-        let mut text_signer = TextSignatory::new();
-        let signed_text = text_signer.sign(text.to_string());
-        assert_eq!(signed_text, "=🔏0.1.0=\nExample text");
-        // Verifying that the signed text came from the right place
-        assert!(text_signer.verify(&signed_text));
-    }
-
-    #[test]
-    fn multi_sign() {
-        // Some text to sign
-        let text = "Example text";
-        // Signing the text
-        let mut text_signer = TextSignatory::new();
-        let signed_text = text_signer.sign(text.to_string());
-        let signed_text = text_signer.sign(signed_text.to_string());
-
-        let signed_text = text_signer.sign(signed_text.to_string());
-
-        assert_eq!(signed_text, "=🔏0.1.0=\n=🔏0.1.0=\n=🔏0.1.0=\nExample text");
-        // Verifying that the signed text came from the right place
-        assert!(text_signer.verify(&signed_text));
-
-        // List all the signatures
-        let (signatures, doc) = text_signer.list_signatures(signed_text);
-
-        // Assert the signatures were collected
-        assert_eq!(
-            signatures,
-            vec!["=🔏0.1.0=\n", "=🔏0.1.0=\n", "=🔏0.1.0=\n"],
-        );
-        // Assert the oroginal document was collected
-        assert_eq!(doc, "Example text");
-    }
 
     #[test]
     fn crypto_sign() {
