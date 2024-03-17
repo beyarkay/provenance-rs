@@ -22,3 +22,14 @@ rand = "0.8.5"
 thiserror = "1.0.57"
 reqwest = { version = "0.11.26", features = ["json", "blocking", "serde_json"] }
 serde = { version = "1.0.197", features = ["serde_derive"] }
+clap = { version = "4.5.3", features = ["derive"] }
+clap_derive = "4.5.3"
+colored = "2.1.0"
+
+[lib]
+name = "provenance_rs"
+path = "src/lib.rs"
+
+[[bin]]
+name = "pvnc"
+path = "src/cli.rs"
