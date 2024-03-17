@@ -1,8 +1,12 @@
-//! An AI-proof* history-of-ownership protocol (*Given some reasonable assumptions)
+//! A history-of-ownership protocol for securely proving where a document came from.
 //!
 //! Provenance is a simple way for users, companies, or applications to say "yes, I
-//! made/edited/created this file". This rust crate provides the reference implementation for the
-//! provenance protocol.
+//! made/edited/created this file". This makes it easy to know if you can trust an image or
+//! document you see online: If it has provenance, then you know who had a hand in creating the
+//! document, but if it doesn't have provenance, you should be suspicious and ask what the creator
+//! has to hide.
+//!
+//! This rust crate provides the reference implementation for the provenance protocol.
 //!
 //! # Example
 //!
@@ -218,7 +222,7 @@ fn get_verifying_key_from_url(url: &str, client: &Client) -> anyhow::Result<Veri
 ///   display name, and details about how the image came to be ("captured", "edited", etc)
 /// - use the verification key to verify that the signer did indeed sign the unmodified document
 /// - Return the details of the signing and signer.
-pub fn verify(signed_doc: &str) -> anyhow::Result<SignerDetails> {
+pub fn verify(signed_doc: &str) -> anyhow::Result<(SignerDetails, String)> {
     let split = signed_doc.split_once('\n');
     let Some((first, doc)) = split else {
         return Err(anyhow!(
@@ -264,10 +268,13 @@ pub fn verify(signed_doc: &str) -> anyhow::Result<SignerDetails> {
         ));
     }
 
-    Ok(SignerDetails {
-        verification_url: url.to_string(),
-        verification_key,
-    })
+    Ok((
+        SignerDetails {
+            verification_url: url.to_string(),
+            verification_key,
+        },
+        doc.to_string(),
+    ))
 }
 
 pub fn sign(doc: &str, signing_key: SigningKey, url: &str) -> String {
@@ -295,7 +302,6 @@ mod tests {
         username: &Username,
         client: &Client,
     ) -> anyhow::Result<KeyDetails> {
-        println!("generating keys for {} at url {url}", username.0);
         // Try to generate keys for the given user
         let response = client
             .get(format!("{url}/generate_key/{}", username.0))
@@ -307,17 +313,6 @@ mod tests {
         };
 
         Ok(key_details)
-    }
-
-    #[test]
-    fn crypto_sign() {
-        let mut csprng = OsRng;
-        let signing_key = SigningKey::generate(&mut csprng);
-        let _signed = sign(
-            "Tsunami warning",
-            signing_key,
-            "http://localhost:8000//beyarkay",
-        );
     }
 
     #[test]
@@ -446,10 +441,61 @@ mod tests {
 
         assert!(verify(format_doc(&provenance_url, encoded_signature, doc).as_str()).is_ok());
     }
+    #[test]
+    fn multiple_signers() {
+        let client = reqwest::blocking::Client::new();
+
+        let mut random_numbers = OsRng;
+
+        let mut usernames: Vec<Username> = (0..10)
+            .map(|_| Username(format!("user_{}", random_numbers.gen_range(0..1_000_000))))
+            .collect();
+
+        let mut signing_keys: Vec<SigningKey> = usernames
+            .iter()
+            .map(|username| {
+                let key_details =
+                    generate_keys_for_user("http://localhost:8000", username, &client).unwrap();
+                // convert the base64 signing key to a SigningKey
+                Base64SigningKey(key_details.signing).try_into().unwrap()
+            })
+            .collect();
+
+        let mut doc = "This is the document that's passing through lots of hands".to_string();
+
+        for (signing_key, username) in signing_keys.iter().zip(usernames.iter()) {
+            let provenance_url = format!("http://localhost:8000/provenance/{}", username.0);
+            // Sign the document
+            let signature = signing_key.sign(doc.as_bytes());
+            // Base64 encode the signature
+            let encoded_signature = Base64Signature(URL_SAFE.encode(signature.to_bytes()));
+
+            doc = format_doc(&provenance_url, encoded_signature, &doc);
+            assert!(verify(&doc).is_ok());
+        }
+
+        usernames.reverse();
+        signing_keys.reverse();
+
+        for (signing_key, username) in signing_keys.iter().zip(usernames.iter()) {
+            let verified = verify(&doc).unwrap();
+
+            let details = verified.0;
+            // We don't use a `let` here so that rustc doesn't think it's a new variable and drop
+            // it at the end of the loop iteration
+            doc = verified.1;
+
+            assert_eq!(
+                details.verification_url,
+                format!("http://localhost:8000/provenance/{}", username.0)
+            );
+            assert_eq!(details.verification_key, signing_key.verifying_key());
+        }
+    }
 
     #[test]
     fn docstring_test() {
-        use crate::{sign, verify};
+        use crate::sign;
         use ed25519_dalek::SigningKey;
 
         // In reality this would be the server of whomever you're delegating trust. An example
@@ -461,8 +507,6 @@ mod tests {
             Base64SigningKey("-5TaFC0xFOj_hf7mlvVaLKKpVFTaXUrLDzRqaaf7gFw=".to_string());
         let signing_key: SigningKey = base64_signing_key.try_into().unwrap();
 
-        let signed_doc = sign(doc, signing_key, url);
-
-        assert!(verify(&signed_doc).is_ok());
+        let _signed_doc = sign(doc, signing_key, url);
     }
 }
