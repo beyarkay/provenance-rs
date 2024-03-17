@@ -308,6 +308,37 @@ pub fn verify(signed_doc: &str) -> (anyhow::Result<SignerDetails>, String) {
     )
 }
 
+/// Given a (possibly signed) document, verify all signers of that document.
+///
+/// This is similar to [`verify`], except it will return *all* signers
+pub fn verify_all(signed_doc: &str) -> (Vec<anyhow::Result<SignerDetails>>, String) {
+    let mut verifications = vec![];
+
+    let mut doc = signed_doc.to_string();
+
+    loop {
+        // Try to verify the provenance of the document
+        let verified: (anyhow::Result<SignerDetails>, String) = verify(&doc);
+
+        // Store the success/failure of the provenance check
+        verifications.push(verified.0);
+
+        // If the given document and the returned document have the same number of lines, then
+        // there is no signature on the document and we have exhausted all the provenance checking
+        // we can do.
+        if doc.lines().count() == verified.1.lines().count() {
+            break;
+        }
+
+        // Now reassign `doc` to whatever the remainder was after verifying the document. This
+        // allows one document to be signed multiple times by (potentially different) signers.
+        doc = verified.1;
+    }
+
+    // Return a vector of all the verifications and the document as was left at the end of it all.
+    (verifications, doc.to_string())
+}
+
 pub fn sign(doc: &str, signing_key: SigningKey, url: &str) -> String {
     let signature = signing_key.sign(doc.as_bytes());
     let encoded_signature = Base64Signature(URL_SAFE.encode(signature.to_bytes()));
