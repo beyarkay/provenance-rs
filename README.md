@@ -3,6 +3,7 @@ Provenance Protocol
 
 [<img alt="docs.rs" src="https://img.shields.io/badge/docs.rs-provenance-rs?logo=docs.rs" height="20">](https://docs.rs/provenance-rs)
 [<img alt="crates.io" src="https://img.shields.io/badge/crates.io-provenance-rs?logo=crates.io" height="20">](https://crates.io/crates/provenance-rs)
+[<img alt="lib.rs" src="https://img.shields.io/badge/lib.rs-provenance-rs?logo=lib.rs" height="20">](https://lib.rs/crates/provenance-rs)
 
 Provenance is a protocol for securely specifying the historical ownership of
 images, videos, and more. It conclusively tells you whether or not an image was
