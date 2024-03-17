@@ -7,7 +7,24 @@
 //! # Example
 //!
 //! ```
-//! // TODO
+//! use provenance_rs::{sign, verify, Base64SigningKey};
+//! use ed25519_dalek::SigningKey;
+//!
+//! // In reality this would be the server of whomever you're delegating trust. An example
+//! // server implementation (which is used for these tests) is available at
+//! // https://github.com/beyarkay/provenance-server
+//! let username = "beyarkay";
+//! let url = format!("http://localhost:8000/provenance/{username}");
+//! let doc = "Some document that I definitely wrote";
+//! // In reality you'd get the server to generate a keypair for you and give you the (secret)
+//! // signing key.
+//! let base64_signing_key =
+//!     Base64SigningKey("-5TaFC0xFOj_hf7mlvVaLKKpVFTaXUrLDzRqaaf7gFw=".to_string());
+//! let signing_key: SigningKey = base64_signing_key.try_into().unwrap();
+//!
+//! let signed_doc = sign(doc, signing_key, &url);
+//!
+//! assert!(verify(&signed_doc).is_ok());
 //! ```
 //!
 //! # Why is this useful?
@@ -26,25 +43,21 @@
 //! example: Joe Blogs took the photo, then PhotoShack.app edited the photo, then user joeblogs1999
 //! uploaded the photo to instagran.com.
 //!
-//! Attaching provenance is done via the [`Signatory`] trait. This allows different signing methods
-//! to be implemented, for example for different filetypes (signing a PNG is different to signing
-//! raw text). It requires that you implement a method of adding a signature to some given bytes
-//! ([`Signatory::sign`]), as well as a method of verifying a signature on a given doc
-//! ([`Signatory::verify`]).
-//!
-//!
 //! Needed:
 //!
 //! - A way of listing the signatures on a doc
 //! - A way of verifying a signature
 //! - A way of signing a doc
 //! - A way of getting signatory information from a doc
-//!
-//!
 
+extern crate reqwest;
+extern crate serde;
 use anyhow::anyhow;
 use base64::{engine::general_purpose::URL_SAFE, Engine as _};
-use ed25519_dalek::{Signature, Signer, SigningKey, Verifier};
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use reqwest::blocking::Client;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 pub enum SigningMethod {
     Text,
@@ -56,19 +69,142 @@ const PROVENANCE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Default, Debug)]
 pub struct SignerDetails {
-    pub url: String,
-    pub details: String,
+    pub verification_url: String,
+    pub verification_key: VerifyingKey,
 }
 
-fn get_signing_key_from_url(url: &str) -> SigningKey {
-    // Just use some example bytes for the signing key
-    let key_bytes = &[0; 32];
-    // FIXME for now, don't actually fetch provenance data from a server and just hardcode the
-    // signing key
-    match url {
-        "https://provenance.twitter.com/beyarkay" => SigningKey::from_bytes(key_bytes),
-        &_ => todo!("Other URLs aren't supported yet"),
+#[derive(Default, Debug, Serialize, Deserialize)]
+pub struct SignerDetailsFromServer {
+    pub verification_url: String,
+    pub verification_key_b64: String,
+    pub metadata: HashMap<String, String>,
+}
+
+#[derive(Default, Debug, Serialize, Deserialize)]
+pub struct KeyDetails {
+    pub verification: String,
+    pub signing: String,
+}
+
+#[derive(Eq, Hash, PartialEq, Debug, Clone)]
+pub struct Username(String);
+
+pub struct Base64Signature(pub String);
+
+impl TryFrom<Base64Signature> for Signature {
+    type Error = anyhow::Error;
+
+    fn try_from(base64_signature: Base64Signature) -> Result<Self, Self::Error> {
+        // Check that the string inside Base64Signature can be decoded into bytes
+        let Ok(bytes_of_base64) = URL_SAFE.decode(base64_signature.0.as_bytes()) else {
+            return Err(anyhow!(
+                "Couldn't convert {} into bytes",
+                base64_signature.0
+            ));
+        };
+
+        // Check that the decoded bytes are the correct length
+        if bytes_of_base64.len() != ed25519_dalek::SIGNATURE_LENGTH {
+            return Err(anyhow!(
+                "Base64Signature needs to be {} bytes long, but is {} bytes long",
+                ed25519_dalek::SIGNATURE_LENGTH,
+                bytes_of_base64.len(),
+            ));
+        }
+
+        // Convert the unknown-length-slice into a known-length-slice
+        // This will always succeed because of the length-check above
+        let known_length_slice: &[u8; ed25519_dalek::SIGNATURE_LENGTH] =
+            bytes_of_base64.as_slice().try_into()?;
+
+        // Convert the slice of bytes into a Signature
+        Ok(Signature::from_bytes(known_length_slice))
     }
+}
+
+pub struct Base64VerifyingKey(pub String);
+
+impl TryFrom<Base64VerifyingKey> for VerifyingKey {
+    type Error = anyhow::Error;
+
+    fn try_from(base64_verifying_key: Base64VerifyingKey) -> Result<Self, Self::Error> {
+        // Check that the string inside Base64VerifyingKey can be decoded into bytes
+        let Ok(bytes_of_base64) = URL_SAFE.decode(base64_verifying_key.0.as_bytes()) else {
+            return Err(anyhow!(
+                "Couldn't convert {} into bytes",
+                base64_verifying_key.0
+            ));
+        };
+
+        // Check that the decoded bytes are the correct length
+        if bytes_of_base64.len() != ed25519_dalek::SECRET_KEY_LENGTH {
+            return Err(anyhow!(
+                "Base64VerifyingKey needs to be {} bytes long, but is {} bytes long",
+                ed25519_dalek::SECRET_KEY_LENGTH,
+                bytes_of_base64.len(),
+            ));
+        }
+
+        // Convert the unknown-length-slice into a known-length-slice
+        // This will always succeed because of the length-check above
+        let known_length_slice: &[u8; ed25519_dalek::SECRET_KEY_LENGTH] =
+            bytes_of_base64.as_slice().try_into()?;
+
+        // Convert the slice of bytes into a VerifyingKey
+        Ok(VerifyingKey::from_bytes(known_length_slice)?)
+    }
+}
+
+pub struct Base64SigningKey(pub String);
+
+impl TryFrom<Base64SigningKey> for SigningKey {
+    type Error = anyhow::Error;
+
+    fn try_from(base64_signing_key: Base64SigningKey) -> Result<Self, Self::Error> {
+        // Check that the string inside Base64SigningKey can be decoded into bytes
+        let Ok(bytes_of_base64) = URL_SAFE.decode(base64_signing_key.0.as_bytes()) else {
+            return Err(anyhow!(
+                "Couldn't convert {} into bytes",
+                base64_signing_key.0
+            ));
+        };
+
+        // Check that the decoded bytes are the correct length
+        if bytes_of_base64.len() != ed25519_dalek::PUBLIC_KEY_LENGTH {
+            return Err(anyhow!(
+                "Base64SigningKey needs to be {} bytes long, but is {} bytes long",
+                ed25519_dalek::PUBLIC_KEY_LENGTH,
+                bytes_of_base64.len(),
+            ));
+        }
+
+        // Convert the unknown-length-slice into a known-length-slice
+        // This will always succeed because of the length-check above
+        let known_length_slice: &[u8; ed25519_dalek::PUBLIC_KEY_LENGTH] =
+            bytes_of_base64.as_slice().try_into()?;
+
+        // Convert the slice of bytes into a SigningKey
+        Ok(SigningKey::from_bytes(known_length_slice))
+    }
+}
+
+/// Given a provenance endpoint, retrieve the signing key
+fn get_verifying_key_from_url(url: &str, client: &Client) -> anyhow::Result<VerifyingKey> {
+    // Get the server response
+    let response = client.get(url).send()?;
+    // Check if it was successful
+    if !response.status().is_success() {
+        return Err(anyhow!(
+            "GET request to {url} failed: {}",
+            response.status()
+        ));
+    }
+
+    // If it was successful, convert the JSON blob into an object
+    let signer_details: SignerDetailsFromServer = response.json()?;
+
+    // Convert the object (with a base64-encoded key) into a VerifyingKey object
+    Base64VerifyingKey(signer_details.verification_key_b64).try_into()
 }
 
 /// Verify that a given document has been signed, and return the signatories details.
@@ -76,12 +212,12 @@ fn get_signing_key_from_url(url: &str) -> SigningKey {
 /// The process for verifying a document has been properly signed is:
 ///
 /// - Extract the provenance version, url, base64-encoded signature, and underlying document from
-/// the signed document
+///   the signed document
 /// - decode the signature from base64 into a sequence of bytes
-/// - query the URL to get the information about the signer,
-///
-///
-///
+/// - query the URL to get the information about the signer such as the verification key, username,
+///   display name, and details about how the image came to be ("captured", "edited", etc)
+/// - use the verification key to verify that the signer did indeed sign the unmodified document
+/// - Return the details of the signing and signer.
 pub fn verify(signed_doc: &str) -> anyhow::Result<SignerDetails> {
     let split = signed_doc.split_once('\n');
     let Some((first, doc)) = split else {
@@ -117,52 +253,71 @@ pub fn verify(signed_doc: &str) -> anyhow::Result<SignerDetails> {
         ));
     }
 
-    let Ok(signature_vec) = URL_SAFE.decode(signature_b64.as_bytes()) else {
-        return Err(anyhow!(
-            "Base64 signature '{signature_b64}' couldn't be decoded from Base64 using '=' for padding and '-_' as the extra characters"
-        ));
-    };
+    let signature: Signature = Base64Signature(signature_b64.to_string()).try_into()?;
 
-    let Ok(signature) = Signature::from_slice(signature_vec.as_slice()) else {
-        return Err(anyhow!(
-            "Couldn't convert slice '{:?}' into a Signature",
-            signature_vec.as_slice()
-        ));
-    };
+    let client = reqwest::blocking::Client::new();
 
-    let verifying_key = get_signing_key_from_url(url).verifying_key();
-    if verifying_key.verify(doc.as_bytes(), &signature).is_err() {
+    let verification_key = get_verifying_key_from_url(url, &client)?;
+    if verification_key.verify(doc.as_bytes(), &signature).is_err() {
         return Err(anyhow!(
             "Document signature '{signature}' could not be verified"
         ));
     }
 
     Ok(SignerDetails {
-        url: url.to_string(),
-        details: "".to_string(),
+        verification_url: url.to_string(),
+        verification_key,
     })
 }
 
-pub fn sign(doc: &str, signing_key: SigningKey) -> String {
-    let url = "https://provenance.twitter.com/beyarkay";
+pub fn sign(doc: &str, signing_key: SigningKey, url: &str) -> String {
     let signature = signing_key.sign(doc.as_bytes());
-    let encoded_signature = URL_SAFE.encode(signature.to_bytes());
-    let doc_with_provenance = format!(
-        "{PROVENANCE_PREAMBLE} {PROVENANCE_VERSION} {url} {encoded_signature} {PROVENANCE_POSTAMBLE}\n{doc}",
-    );
-    doc_with_provenance
+    let encoded_signature = Base64Signature(URL_SAFE.encode(signature.to_bytes()));
+
+    format_doc(url, encoded_signature, doc)
+}
+
+pub fn format_doc(url: &str, encoded_signature: Base64Signature, doc: &str) -> String {
+    format!(
+        "{PROVENANCE_PREAMBLE} {PROVENANCE_VERSION} {url} {} {PROVENANCE_POSTAMBLE}\n{doc}",
+        encoded_signature.0
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use rand::rngs::OsRng;
+    use rand::Rng;
+
+    fn generate_keys_for_user(
+        url: &str,
+        username: &Username,
+        client: &Client,
+    ) -> anyhow::Result<KeyDetails> {
+        println!("generating keys for {} at url {url}", username.0);
+        // Try to generate keys for the given user
+        let response = client
+            .get(format!("{url}/generate_key/{}", username.0))
+            .send()?;
+
+        // Key generation can fail (ie if the user already has keys)
+        let Ok(key_details) = response.json() else {
+            return Err(anyhow!("Failed to get keys for {}", username.0));
+        };
+
+        Ok(key_details)
+    }
 
     #[test]
     fn crypto_sign() {
         let mut csprng = OsRng;
         let signing_key = SigningKey::generate(&mut csprng);
-        let _signed = sign("Tsunami warning", signing_key);
+        let _signed = sign(
+            "Tsunami warning",
+            signing_key,
+            "http://localhost:8000//beyarkay",
+        );
     }
 
     #[test]
@@ -213,59 +368,101 @@ mod tests {
 
     #[test]
     fn verification_fails_during_signature_from_slice() {
-        let url = "https://provenance.twitter.com/beyarkay";
-        let signature = URL_SAFE.encode("not a valid signature".as_bytes());
-        assert!(verify(
-            format!("{PROVENANCE_PREAMBLE} {PROVENANCE_VERSION} {url} {signature} {PROVENANCE_POSTAMBLE}\ndocument text here").as_str()
-        ).is_err());
+        let url = "http://localhost:8000/provenance/beyarkay";
+        let encoded_signature =
+            Base64Signature(URL_SAFE.encode("not a valid signature".as_bytes()));
+        let doc = "Document text here";
+
+        assert!(verify(format_doc(url, encoded_signature, doc).as_str()).is_err());
     }
 
     #[test]
     fn verification_fails_during_base64_decoding() {
-        let url = "https://provenance.twitter.com/beyarkay";
-        let signature = "!exclamations!arent!base64!";
-        assert!(verify(
-            format!("{PROVENANCE_PREAMBLE} {PROVENANCE_VERSION} {url} {signature} {PROVENANCE_POSTAMBLE}\ndocument text here").as_str()
-        ).is_err());
+        let url = "http://localhost:8000/provenance/beyarkay";
+        let badly_encoded_signature = Base64Signature("!exclamations!arent!base64!".to_string());
+        let doc = "Document text here";
+
+        assert!(verify(format_doc(url, badly_encoded_signature, doc).as_str()).is_err());
     }
 
     #[test]
     fn verification_fails_if_bad_key() {
-        let url = "https://provenance.twitter.com/beyarkay";
+        let url = "http://localhost:8000/provenance/beyarkay";
         let doc = "document text here";
-        // This randomly generated key won't be the same as the correct key
+        // This randomly generated key won't be the same as the correct key for the user beyarkay
         let mut csprng = OsRng;
         let signing_key = SigningKey::generate(&mut csprng);
-        let signature = URL_SAFE.encode(signing_key.sign(doc.as_bytes()).to_bytes());
-        assert!(verify(
-            format!("{PROVENANCE_PREAMBLE} {PROVENANCE_VERSION} {url} {signature} {PROVENANCE_POSTAMBLE}\n{doc}").as_str()
-        ).is_err());
+        let encoded_signature =
+            Base64Signature(URL_SAFE.encode(signing_key.sign(doc.as_bytes()).to_bytes()));
+
+        assert!(verify(format_doc(url, encoded_signature, doc).as_str()).is_err());
     }
 
     #[test]
     fn verification_fails_if_bad_doc() {
-        let url = "https://provenance.twitter.com/beyarkay";
+        // Verification should fail if the document was modified after being signed
+        let url = "http://localhost:8000/provenance/beyarkay";
         let doc = "document text here";
-        let signing_key = get_signing_key_from_url(url);
+        let client = reqwest::blocking::Client::new();
+        // Generate a new key and retrieve the (signing, verifying) keypair
+        let mut random_numbers = OsRng;
+        let key_details = generate_keys_for_user(
+            "http://localhost:8000",
+            &Username(format!("user_{}", random_numbers.gen_range(0..1_000_000))),
+            &client,
+        )
+        .unwrap();
 
-        let signature = URL_SAFE.encode(signing_key.sign(doc.as_bytes()).to_bytes());
+        // Convert the base64 string into a SigningKey object
+        let signing_key: SigningKey = Base64SigningKey(key_details.signing).try_into().unwrap();
+
+        // Sign the document
+        let signature = signing_key.sign(doc.as_bytes());
+        // base64-encode the signature
+        let encoded_signature = Base64Signature(URL_SAFE.encode(signature.to_bytes()));
+
         let mutated_doc = format!("{doc}and then some extra data");
 
-        assert!(verify(
-            format!("{PROVENANCE_PREAMBLE} {PROVENANCE_VERSION} {url} {signature} {PROVENANCE_POSTAMBLE}\n{mutated_doc}").as_str()
-        ).is_err());
+        assert!(verify(format_doc(url, encoded_signature, &mutated_doc).as_str()).is_err());
     }
 
     #[test]
     fn verification_succeeds() {
-        let url = "https://provenance.twitter.com/beyarkay";
+        let mut random_numbers = OsRng;
+        let username = Username(format!("user_{}", random_numbers.gen_range(0..1_000_000)));
+        let provenance_url = format!("http://localhost:8000/provenance/{}", username.0);
         let doc = "document text here";
-        let signing_key = get_signing_key_from_url(url);
+        let client = reqwest::blocking::Client::new();
 
-        let signature = URL_SAFE.encode(signing_key.sign(doc.as_bytes()).to_bytes());
+        // Generate a new keypair
+        let key_details =
+            generate_keys_for_user("http://localhost:8000", &username, &client).unwrap();
+        // convert the base64 signing key to a SigningKey
+        let signing_key: SigningKey = Base64SigningKey(key_details.signing).try_into().unwrap();
+        // Sign the document
+        let signature = signing_key.sign(doc.as_bytes());
+        // Base64 encode the signature
+        let encoded_signature = Base64Signature(URL_SAFE.encode(signature.to_bytes()));
 
-        assert!(verify(
-            format!("{PROVENANCE_PREAMBLE} {PROVENANCE_VERSION} {url} {signature} {PROVENANCE_POSTAMBLE}\n{doc}").as_str()
-        ).is_ok());
+        assert!(verify(format_doc(&provenance_url, encoded_signature, doc).as_str()).is_ok());
+    }
+
+    #[test]
+    fn docstring_test() {
+        use crate::{sign, verify};
+        use ed25519_dalek::SigningKey;
+
+        // In reality this would be the server of whomever you're delegating trust. An example
+        // server implementation (which is used for these tests) is available at
+        // https://github.com/beyarkay/provenance-server
+        let url = "http://localhost:8000/provenance/beyarkay";
+        let doc = "Some document that I definitely wrote";
+        let base64_signing_key =
+            Base64SigningKey("-5TaFC0xFOj_hf7mlvVaLKKpVFTaXUrLDzRqaaf7gFw=".to_string());
+        let signing_key: SigningKey = base64_signing_key.try_into().unwrap();
+
+        let signed_doc = sign(doc, signing_key, url);
+
+        assert!(verify(&signed_doc).is_ok());
     }
 }

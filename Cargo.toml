@@ -14,9 +14,11 @@ categories = ["cryptography", "encoding", "multimedia"]
 keywords = ["protocol", "cryptography", "encoding", "decoding", "metadata"]
 
 [dependencies]
+kamadak-exif = "0.5.5"
 anyhow = "1.0.80"
 base64 = "0.22.0"
 ed25519-dalek = { version = "2.1.1", features = ["rand_core"] }
-kamadak-exif = "0.5.5"
 rand = "0.8.5"
 thiserror = "1.0.57"
+reqwest = { version = "0.11.26", features = ["json", "blocking", "serde_json"] }
+serde = { version = "1.0.197", features = ["serde_derive"] }
