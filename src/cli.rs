@@ -71,7 +71,7 @@ fn main() -> anyhow::Result<()> {
         Commands::Verify { path } => {
             let signed_doc = std::fs::read_to_string(path.clone())?;
             match verify(&signed_doc) {
-                Ok((signer_details, _remainder)) => {
+                (Ok(signer_details), _remainder) => {
                     eprintln!(
                         "[{}] '{}' has confirmed authorship of {path:?}",
                         "Success".green().bold(),
@@ -79,7 +79,7 @@ fn main() -> anyhow::Result<()> {
                     );
                 }
 
-                Err(_) => {
+                (Err(_), _remainder) => {
                     return Err(anyhow!(
                         "[{}] couldn't verify {path:?}",
                         "Failure".red().bold()

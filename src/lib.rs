@@ -28,7 +28,7 @@
 //!
 //! let signed_doc = sign(doc, signing_key, &url);
 //!
-//! assert!(verify(&signed_doc).is_ok());
+//! assert!(verify(&signed_doc).0.is_ok());
 //! ```
 //!
 //! # Why is this useful?
@@ -211,7 +211,7 @@ fn get_verifying_key_from_url(url: &str, client: &Client) -> anyhow::Result<Veri
     Base64VerifyingKey(signer_details.verification_key_b64).try_into()
 }
 
-/// Verify that a given document has been signed, and return the signatories details.
+/// Verify that a given document has been signed, and return the signatory's details.
 ///
 /// The process for verifying a document has been properly signed is:
 ///
@@ -222,59 +222,90 @@ fn get_verifying_key_from_url(url: &str, client: &Client) -> anyhow::Result<Veri
 ///   display name, and details about how the image came to be ("captured", "edited", etc)
 /// - use the verification key to verify that the signer did indeed sign the unmodified document
 /// - Return the details of the signing and signer.
-pub fn verify(signed_doc: &str) -> anyhow::Result<(SignerDetails, String)> {
+pub fn verify(signed_doc: &str) -> (anyhow::Result<SignerDetails>, String) {
     let split = signed_doc.split_once('\n');
     let Some((first, doc)) = split else {
-        return Err(anyhow!(
-            "Document has only one line, therefore cannot be signed"
-        ));
+        return (
+            Err(anyhow!(
+                "Document has only one line, therefore cannot be signed"
+            )),
+            signed_doc.to_string(),
+        );
     };
     let words = first.split(' ').collect::<Vec<_>>();
     let [preamble, version, url, signature_b64, postamble] = words[..] else {
-        return Err(anyhow!(
-            "Document doesn't have five space-separated words in first line"
-        ));
+        return (
+            Err(anyhow!(
+                "Document doesn't have five space-separated words in first line"
+            )),
+            doc.to_string(),
+        );
     };
     if url.is_empty() {
-        return Err(anyhow!("URL cannot be empty"));
+        return (Err(anyhow!("URL cannot be empty")), doc.to_string());
     }
     if signature_b64.is_empty() {
-        return Err(anyhow!("Signature cannot be empty"));
+        return (Err(anyhow!("Signature cannot be empty")), doc.to_string());
     }
     if preamble != PROVENANCE_PREAMBLE {
-        return Err(anyhow!(
-            "Document preamble is '{preamble}', not '{PROVENANCE_PREAMBLE}'"
-        ));
+        return (
+            Err(anyhow!(
+                "Document preamble is '{preamble}', not '{PROVENANCE_PREAMBLE}'"
+            )),
+            doc.to_string(),
+        );
     }
     if version != PROVENANCE_VERSION {
-        return Err(anyhow!(
-            "Document version is '{version}', not '{PROVENANCE_VERSION}'"
-        ));
+        return (
+            Err(anyhow!(
+                "Document version is '{version}', not '{PROVENANCE_VERSION}'"
+            )),
+            doc.to_string(),
+        );
     }
     if postamble != PROVENANCE_POSTAMBLE {
-        return Err(anyhow!(
-            "Document postamble is '{postamble}', not '{PROVENANCE_POSTAMBLE}'"
-        ));
+        return (
+            Err(anyhow!(
+                "Document postamble is '{postamble}', not '{PROVENANCE_POSTAMBLE}'"
+            )),
+            doc.to_string(),
+        );
     }
 
-    let signature: Signature = Base64Signature(signature_b64.to_string()).try_into()?;
+    let Ok(signature) = Base64Signature(signature_b64.to_string()).try_into() else {
+        return (
+            Err(anyhow!(
+                "Couldn't convert base64 signature '{signature_b64}' into a signature"
+            )),
+            doc.to_string(),
+        );
+    };
 
     let client = reqwest::blocking::Client::new();
 
-    let verification_key = get_verifying_key_from_url(url, &client)?;
+    let Ok(verification_key) = get_verifying_key_from_url(url, &client) else {
+        return (
+            Err(anyhow!("Couldn't fetch verification key from url '{url}'")),
+            doc.to_string(),
+        );
+    };
+
     if verification_key.verify(doc.as_bytes(), &signature).is_err() {
-        return Err(anyhow!(
-            "Document signature '{signature}' could not be verified"
-        ));
+        return (
+            Err(anyhow!(
+                "Document signature '{signature}' could not be verified"
+            )),
+            doc.to_string(),
+        );
     }
 
-    Ok((
-        SignerDetails {
+    (
+        Ok(SignerDetails {
             verification_url: url.to_string(),
             verification_key,
-        },
+        }),
         doc.to_string(),
-    ))
+    )
 }
 
 pub fn sign(doc: &str, signing_key: SigningKey, url: &str) -> String {
@@ -317,14 +348,14 @@ mod tests {
 
     #[test]
     fn verification_fails_if_no_newline() {
-        assert!(verify("document text here").is_err());
+        assert!(verify("document text here").0.is_err());
     }
 
     #[test]
     fn verification_fails_if_bad_start() {
         assert!(
             verify(format!("<!PROVENANCE_PREAMBLE!> {PROVENANCE_VERSION} url signature {PROVENANCE_POSTAMBLE}\ndocument text here").as_str())
-                .is_err()
+                .0.is_err()
         );
     }
 
@@ -332,7 +363,7 @@ mod tests {
     fn verification_fails_if_bad_ending() {
         assert!(
             verify(format!("{PROVENANCE_PREAMBLE} {PROVENANCE_VERSION} url signature <!PROVENANCE_POSTAMBLE!>\ndocument text here").as_str())
-                .is_err()
+                .0.is_err()
         );
     }
 
@@ -340,25 +371,25 @@ mod tests {
     fn verification_fails_if_bad_version() {
         assert!(verify(
             format!("{PROVENANCE_PREAMBLE} <!PROVENANCE_VERSION!> url signature {PROVENANCE_POSTAMBLE}\ndocument text here").as_str(),
-        ).is_err());
+        ).0.is_err());
     }
 
     #[test]
     fn verification_fails_if_signature_is_empty() {
         assert!(verify(
             format!("{PROVENANCE_PREAMBLE} {PROVENANCE_VERSION} url  {PROVENANCE_POSTAMBLE}\ndocument text here").as_str(),
-        ).is_err());
+        ).0.is_err());
     }
 
     #[test]
     fn verification_fails_if_url_is_empty() {
         assert!(verify(
             format!("{PROVENANCE_PREAMBLE} {PROVENANCE_VERSION}  signature {PROVENANCE_POSTAMBLE}\ndocument text here").as_str(),
-        ).is_err());
+        ).0.is_err());
     }
     #[test]
     fn verification_fails_if_wrong_number_of_args() {
-        assert!(verify("one two three four\ndocument text here").is_err());
+        assert!(verify("one two three four\ndocument text here").0.is_err());
     }
 
     #[test]
@@ -368,7 +399,9 @@ mod tests {
             Base64Signature(URL_SAFE.encode("not a valid signature".as_bytes()));
         let doc = "Document text here";
 
-        assert!(verify(format_doc(url, encoded_signature, doc).as_str()).is_err());
+        assert!(verify(format_doc(url, encoded_signature, doc).as_str())
+            .0
+            .is_err());
     }
 
     #[test]
@@ -377,7 +410,11 @@ mod tests {
         let badly_encoded_signature = Base64Signature("!exclamations!arent!base64!".to_string());
         let doc = "Document text here";
 
-        assert!(verify(format_doc(url, badly_encoded_signature, doc).as_str()).is_err());
+        assert!(
+            verify(format_doc(url, badly_encoded_signature, doc).as_str())
+                .0
+                .is_err()
+        );
     }
 
     #[test]
@@ -390,7 +427,9 @@ mod tests {
         let encoded_signature =
             Base64Signature(URL_SAFE.encode(signing_key.sign(doc.as_bytes()).to_bytes()));
 
-        assert!(verify(format_doc(url, encoded_signature, doc).as_str()).is_err());
+        assert!(verify(format_doc(url, encoded_signature, doc).as_str())
+            .0
+            .is_err());
     }
 
     #[test]
@@ -418,7 +457,11 @@ mod tests {
 
         let mutated_doc = format!("{doc}and then some extra data");
 
-        assert!(verify(format_doc(url, encoded_signature, &mutated_doc).as_str()).is_err());
+        assert!(
+            verify(format_doc(url, encoded_signature, &mutated_doc).as_str())
+                .0
+                .is_err()
+        );
     }
 
     #[test]
@@ -439,7 +482,11 @@ mod tests {
         // Base64 encode the signature
         let encoded_signature = Base64Signature(URL_SAFE.encode(signature.to_bytes()));
 
-        assert!(verify(format_doc(&provenance_url, encoded_signature, doc).as_str()).is_ok());
+        assert!(
+            verify(format_doc(&provenance_url, encoded_signature, doc).as_str())
+                .0
+                .is_ok()
+        );
     }
     #[test]
     fn multiple_signers() {
@@ -471,16 +518,16 @@ mod tests {
             let encoded_signature = Base64Signature(URL_SAFE.encode(signature.to_bytes()));
 
             doc = format_doc(&provenance_url, encoded_signature, &doc);
-            assert!(verify(&doc).is_ok());
+            assert!(verify(&doc).0.is_ok());
         }
 
         usernames.reverse();
         signing_keys.reverse();
 
         for (signing_key, username) in signing_keys.iter().zip(usernames.iter()) {
-            let verified = verify(&doc).unwrap();
+            let verified = verify(&doc);
 
-            let details = verified.0;
+            let details = verified.0.unwrap();
             // We don't use a `let` here so that rustc doesn't think it's a new variable and drop
             // it at the end of the loop iteration
             doc = verified.1;
