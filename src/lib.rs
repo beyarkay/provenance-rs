@@ -319,9 +319,7 @@ pub fn verify_all(signed_doc: &str) -> (Vec<anyhow::Result<SignerDetails>>, Stri
     loop {
         // Try to verify the provenance of the document
         let verified: (anyhow::Result<SignerDetails>, String) = verify(&doc);
-
-        // Store the success/failure of the provenance check
-        verifications.push(verified.0);
+        // println!("Doc is ok? {}: \n```{doc}\n```\n", verified.0.is_ok());
 
         // If the given document and the returned document have the same number of lines, then
         // there is no signature on the document and we have exhausted all the provenance checking
@@ -329,6 +327,9 @@ pub fn verify_all(signed_doc: &str) -> (Vec<anyhow::Result<SignerDetails>>, Stri
         if doc.lines().count() == verified.1.lines().count() {
             break;
         }
+
+        // If this is not the final signer, push the verification and move onto the next one
+        verifications.push(verified.0);
 
         // Now reassign `doc` to whatever the remainder was after verifying the document. This
         // allows one document to be signed multiple times by (potentially different) signers.
@@ -568,6 +569,177 @@ mod tests {
                 format!("http://localhost:8000/provenance/{}", username.0)
             );
             assert_eq!(details.verification_key, signing_key.verifying_key());
+        }
+    }
+
+    fn generate_users_and_signing_keys(number: u8) -> Vec<(Username, SigningKey)> {
+        let client = reqwest::blocking::Client::new();
+
+        let mut random_numbers = OsRng;
+
+        let usernames: Vec<Username> = (0..number)
+            .map(|_| Username(format!("user_{}", random_numbers.gen_range(0..1_000_000))))
+            .collect();
+
+        let signing_keys: Vec<SigningKey> = usernames
+            .iter()
+            .map(|username| {
+                let key_details =
+                    generate_keys_for_user("http://localhost:8000", username, &client).unwrap();
+                // convert the base64 signing key to a SigningKey
+                Base64SigningKey(key_details.signing).try_into().unwrap()
+            })
+            .collect();
+
+        usernames.into_iter().zip(signing_keys).collect()
+    }
+
+    #[test]
+    fn verify_all_works() {
+        let (mut usernames, mut signing_keys): (Vec<Username>, Vec<SigningKey>) =
+            generate_users_and_signing_keys(10).into_iter().unzip();
+
+        let original_doc = "This is the document that's passing through lots of hands".to_string();
+        let mut doc = original_doc.clone();
+
+        for (signing_key, username) in signing_keys.iter().zip(usernames.iter()) {
+            let provenance_url = format!("http://localhost:8000/provenance/{}", username.0);
+            // Sign the document
+            let signature = signing_key.sign(doc.as_bytes());
+            // Base64 encode the signature
+            let encoded_signature = Base64Signature(URL_SAFE.encode(signature.to_bytes()));
+
+            doc = format_doc(&provenance_url, encoded_signature, &doc);
+            assert!(verify(&doc).0.is_ok());
+        }
+
+        usernames.reverse();
+        signing_keys.reverse();
+        let (results, remainder) = verify_all(&doc);
+
+        assert_eq!(remainder, original_doc);
+
+        for ((result, username), key) in results.iter().zip(usernames).zip(signing_keys) {
+            let Ok(signer_details) = result else {
+                panic!("Result is {result:?} (not OK)")
+            };
+
+            assert_eq!(
+                signer_details.verification_url,
+                format!("http://localhost:8000/provenance/{}", username.0)
+            );
+
+            assert_eq!(signer_details.verification_key, key.verifying_key());
+        }
+    }
+
+    #[test]
+    fn verify_all_but_some_are_bad() {
+        // FIXME so if signer N in a chain of signers K..N..1 edited the underlying data, we cannot
+        // confirm all signers n-1..1 because we can't know for sure what the edit was. Unless we
+        // encode the original *and* the edited file, or the diff between them, but then things get
+        // really tricky.
+        //
+        // And if the signer N pretends to not have edited the file, then we'll see all signers
+        // N..1  (so including N) fail verification because we will be checking signatures N..1
+        // against an edited document.
+        let (mut usernames, mut signing_keys): (Vec<Username>, Vec<SigningKey>) =
+            generate_users_and_signing_keys(4).into_iter().unzip();
+
+        let original_doc = "This is the document that's passing through lots of hands".to_string();
+        let mut doc = original_doc.clone();
+
+        // Hard coded 10 "random" booleans because we don't like flakey tests
+        let mut is_mutated = vec![
+            false, true, false,
+            true, // false, true,
+                 // true, //  keep the non-compliant formatting so
+                 // false, false, false, true, false, // that it's easy to see there's 10 elements
+        ];
+        assert_eq!(
+            usernames.len(),
+            is_mutated.len(),
+            "Usernames and is_mutated should be the same length"
+        );
+        let mutation_string = " got mutated!".to_string();
+
+        // println!("-- START SIGNING --");
+        let iterator = signing_keys
+            .iter()
+            .zip(usernames.iter())
+            .zip(is_mutated.iter());
+        for ((signing_key, username), mutate) in iterator {
+            // println!("{username:?} mutates?: {mutate}");
+            let provenance_url = format!("http://localhost:8000/provenance/{}", username.0);
+            // Sign the document
+            let signature = signing_key.sign(doc.as_bytes());
+            // Base64 encode the signature
+            let encoded_signature = Base64Signature(URL_SAFE.encode(signature.to_bytes()));
+
+            if *mutate {
+                doc = format_doc(
+                    &provenance_url,
+                    encoded_signature,
+                    &format!("{doc}{mutation_string}"),
+                );
+            } else {
+                doc = format_doc(&provenance_url, encoded_signature, &doc);
+            }
+            // println!("mutated?: {mutate} Doc is:\n```\n{doc}\n```");
+
+            if *mutate {
+                assert!(verify(&doc).0.is_err());
+            } else {
+                assert!(verify(&doc).0.is_ok());
+            }
+            // println!("verification: {:?}\n", verify(&doc).0);
+        }
+
+        // Reverse the vectors since we verify in the opposite order to which we sign
+        usernames.reverse();
+        is_mutated.reverse();
+        signing_keys.reverse();
+        // println!("-- START VERIFICATION --");
+
+        // Actually do the verification
+        let (results, _remainder) = verify_all(&doc);
+
+        let iterator = results
+            .iter()
+            .zip(usernames)
+            .zip(signing_keys)
+            .zip(is_mutated);
+
+        // println!("-- START CHECKING THE VERIFICATION --");
+        let mut doc_has_been_mutated = false;
+        for (((result, username), key), mutated) in iterator {
+            // println!(
+            //     "{} mutated?: {mutated} {username:?}, {result:?}",
+            //     if mutated == result.is_err() {
+            //         "good"
+            //     } else {
+            //         "bad"
+            //     }
+            // );
+            // continue;
+            doc_has_been_mutated = doc_has_been_mutated || mutated;
+
+            if doc_has_been_mutated {
+                // println!("{username:?} is err");
+                assert!(result.is_err())
+            } else {
+                // println!("{username:?} is ok");
+                let Ok(signer_details) = result else {
+                    panic!("Result is {result:?} (not Ok)")
+                };
+
+                assert_eq!(
+                    signer_details.verification_url,
+                    format!("http://localhost:8000/provenance/{}", username.0)
+                );
+
+                assert_eq!(signer_details.verification_key, key.verifying_key());
+            }
         }
     }
 

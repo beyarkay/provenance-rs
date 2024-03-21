@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use anyhow::anyhow;
 use clap::{Parser, Subcommand};
 use ed25519_dalek::SigningKey;
-use provenance_rs::{sign, verify, Base64SigningKey};
+use provenance_rs::{sign, verify_all, Base64SigningKey};
 
 /// Usage:
 ///
@@ -58,9 +58,8 @@ fn main() -> anyhow::Result<()> {
             url,
             out,
         } => {
-            let doc = std::fs::read_to_string(document.clone())?;
-            let signing_key: SigningKey = Base64SigningKey(signing_key).try_into()?;
-            let output = sign(&doc, signing_key, &url);
+            let doc_string = std::fs::read_to_string(document.clone())?;
+            let output = sign_string(doc_string, Base64SigningKey(signing_key), &url)?;
             std::fs::write(out.clone(), output)?;
             eprintln!(
                 "[{}] added provenance to {document:?} {}",
@@ -70,24 +69,86 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::Verify { path } => {
             let signed_doc = std::fs::read_to_string(path.clone())?;
-            match verify(&signed_doc) {
-                (Ok(signer_details), _remainder) => {
+            let verifications = verify_all(&signed_doc);
+            let num_verified = verifications.0.iter().filter(|v| v.is_ok()).count();
+            let total = verifications.0.len();
+
+            if total == 1 {
+                if let Ok(signer_details) = &verifications.0[0] {
                     eprintln!(
                         "[{}] '{}' has confirmed authorship of {path:?}",
                         "Success".green().bold(),
                         signer_details.verification_url,
                     );
+                } else {
+                    eprintln!(
+                        "[{}] couldn't verify {path:?} with provenance server",
+                        "Failure".red().bold(),
+                    )
                 }
-
-                (Err(_), _remainder) => {
-                    return Err(anyhow!(
-                        "[{}] couldn't verify {path:?}",
-                        "Failure".red().bold()
-                    ))
+            } else {
+                eprintln!(
+                    "[{}] {}/{} ({:.2}%) provenance servers have confirmed authorship of '{}'",
+                    "Information".blue().bold(),
+                    num_verified,
+                    total,
+                    (num_verified as f64 / total as f64) * 100.0,
+                    path.to_string_lossy(),
+                );
+                for verification in verifications.0 {
+                    if let Ok(signer_details) = verification {
+                        eprintln!(
+                            "[{}] '{}' has confirmed authorship of {path:?}",
+                            "Success".green().bold(),
+                            signer_details.verification_url,
+                        );
+                    } else {
+                        eprintln!(
+                            "[{}] couldn't verify {path:?} with provenance server",
+                            "Failure".red().bold(),
+                        )
+                    }
                 }
+            }
+            if total == num_verified {
+                return Ok(());
+            } else {
+                return Err(anyhow!(
+                    "[{}] Not all provenance was successful",
+                    "Failure".red().bold()
+                ));
             }
         }
     };
 
     Ok(())
+}
+
+fn sign_string(
+    document: String,
+    base64_signing_key: Base64SigningKey,
+    url: &str,
+) -> anyhow::Result<String> {
+    let signing_key: SigningKey = base64_signing_key.try_into()?;
+    Ok(sign(&document, signing_key, url))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sign_string_basic() {
+        let url = "http://localhost:8000/provenance/beyarkay";
+        let document = "Some document that I definitely wrote".to_string();
+        let base64_signing_key =
+            Base64SigningKey("-5TaFC0xFOj_hf7mlvVaLKKpVFTaXUrLDzRqaaf7gFw=".to_string());
+
+        let signed_string = sign_string(document, base64_signing_key, url).unwrap();
+        let provenance_version: &str = env!("CARGO_PKG_VERSION");
+        assert_eq!(
+            signed_string,
+            format!("~~🔏 {provenance_version} http://localhost:8000/provenance/beyarkay 01_e1TwyaDlWnvv7DO9KewhqsfFHP-mAMy74oUwjqB9Vpxa8kHNDg1SRFotz14bIwwws997HICGf2A5Ab98MBg== 🔏~~\nSome document that I definitely wrote")
+            );
+    }
 }
