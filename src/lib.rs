@@ -319,7 +319,6 @@ pub fn verify_all(signed_doc: &str) -> (Vec<anyhow::Result<SignerDetails>>, Stri
     loop {
         // Try to verify the provenance of the document
         let verified: (anyhow::Result<SignerDetails>, String) = verify(&doc);
-        // println!("Doc is ok? {}: \n```{doc}\n```\n", verified.0.is_ok());
 
         // If the given document and the returned document have the same number of lines, then
         // there is no signature on the document and we have exhausted all the provenance checking
@@ -663,13 +662,11 @@ mod tests {
         );
         let mutation_string = " got mutated!".to_string();
 
-        // println!("-- START SIGNING --");
         let iterator = signing_keys
             .iter()
             .zip(usernames.iter())
             .zip(is_mutated.iter());
         for ((signing_key, username), mutate) in iterator {
-            // println!("{username:?} mutates?: {mutate}");
             let provenance_url = format!("http://localhost:8000/provenance/{}", username.0);
             // Sign the document
             let signature = signing_key.sign(doc.as_bytes());
@@ -685,21 +682,18 @@ mod tests {
             } else {
                 doc = format_doc(&provenance_url, encoded_signature, &doc);
             }
-            // println!("mutated?: {mutate} Doc is:\n```\n{doc}\n```");
 
             if *mutate {
                 assert!(verify(&doc).0.is_err());
             } else {
                 assert!(verify(&doc).0.is_ok());
             }
-            // println!("verification: {:?}\n", verify(&doc).0);
         }
 
         // Reverse the vectors since we verify in the opposite order to which we sign
         usernames.reverse();
         is_mutated.reverse();
         signing_keys.reverse();
-        // println!("-- START VERIFICATION --");
 
         // Actually do the verification
         let (results, _remainder) = verify_all(&doc);
@@ -710,25 +704,13 @@ mod tests {
             .zip(signing_keys)
             .zip(is_mutated);
 
-        // println!("-- START CHECKING THE VERIFICATION --");
         let mut doc_has_been_mutated = false;
         for (((result, username), key), mutated) in iterator {
-            // println!(
-            //     "{} mutated?: {mutated} {username:?}, {result:?}",
-            //     if mutated == result.is_err() {
-            //         "good"
-            //     } else {
-            //         "bad"
-            //     }
-            // );
-            // continue;
             doc_has_been_mutated = doc_has_been_mutated || mutated;
 
             if doc_has_been_mutated {
-                // println!("{username:?} is err");
                 assert!(result.is_err())
             } else {
-                // println!("{username:?} is ok");
                 let Ok(signer_details) = result else {
                     panic!("Result is {result:?} (not Ok)")
                 };
