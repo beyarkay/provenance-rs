@@ -1,9 +1,123 @@
-Provenance Protocol
-===================
+# Provenance Protocol
 
 [<img alt="docs.rs" src="https://img.shields.io/badge/docs.rs-provenance-rs?logo=docs.rs" height="20">](https://docs.rs/provenance-rs)
 [<img alt="crates.io" src="https://img.shields.io/badge/crates.io-provenance-rs?logo=crates.io" height="20">](https://crates.io/crates/provenance-rs)
 [<img alt="lib.rs" src="https://img.shields.io/badge/lib.rs-provenance-rs?logo=lib.rs" height="20">](https://lib.rs/crates/provenance-rs)
+
+---
+
+This repository contains the reference implementation for the provenance
+protocol, as well as a reference web server for verification of provenance
+signatures, and GUI application for easily signing and verifying provenance
+of images or text.
+
+The provenance protocol allows anyone to verify the source of an image, PDF, or
+piece of text. How this works in practice:
+
+1. A journalist (working for the fictional Foo-Bar Times) takes a photo which
+   people might be suspicious of. Maybe it's of a political figure, maybe it's
+   a breaking news story, it doesn't matter.
+2. The journalist uses the provenance protocol to cryptographically sign the
+   image, embedding the signature into the image so that wherever the image
+   goes, the signature follows.
+3. You, a rationally sceptical citizen, see the image from the journalist and
+   at first think that maybe the image is AI generated or otherwise edited.
+4. Using the embedded signature, you can confirm two important things:
+   1. The image has not been edited in any way since it was signed.
+   2. The person who signed the image does indeed work for the Foo-Bar Times
+
+With this information, you can more fully trust the image, because you know for
+sure that the Foo-Bar Times has put their reputation behind the image being
+true.
+
+Instead of discussing how things happen when everyone's playing nicely, it
+might be instructive to discuss what happens when one party tries to be
+deceptive.
+
+## What about when someone tries to say an AI image is real?
+
+If you see a weird image online and it doesn't have provenance attached to it,
+you should be suspicious. There is no way to know that the image hasn't been
+doctored, and if you can't trust whoever is uploading the image, you have no
+way of trusting the image.
+
+If the image does have provenance attached, then you can verify the provenance
+using the provenance website/desktop application. If the provenance can't be
+verified, then you can't trust the image to be real.
+
+If the provenance can be verified, then the website will tell you who signed
+the image. It's up to you to decide if you trust the signer, but typically it's
+a lot easier to decide if you trust an institution than if you trust some
+random social media username.
+
+## Okay, but how do I know if the image has Provenance?
+
+You can upload an image to the desktop application or to the website. Encourage
+your favourite social media site to embed provenance into their applications!
+
+## I'm a social media site, how should I integrate Provenance?
+
+Images should be shown with either a moving logo displayed over the image (to
+prevent bad actors from just putting the logo into the image) or a static logo
+displayed adjacent to the image (in such a way that it could not be mistaken
+for being part of the image).
+
+---
+
+AI-generated images, product reviews, and news have made it difficult to
+distinguish truth from fiction. The Provenance Protocol allows people to
+_delegate_ your trust to a third party.
+
+One problem with signing a document with your private key is that it proves
+that you wrote the document, but that's only worth something _if people know
+who you are_. If a stranger gives you an unbelievable story, you don't really
+care if they signed it or not because you don't trust the person who did the
+signing.
+
+This problem can be fixed by hosting the signer's public key on a third-party
+server. It makes it possible for previously untrusted individuals to "borrow"
+the trustworthiness of larger entities. The individual signs a document with
+their private key, and then asks the third party server to host the
+individual's public key on their system. The individual then shares the
+document on the public internet. Anyone who comes across this document might
+not trust the individual, but if they trust the third party then they can query
+the third party's servers, receive the individual's public key, and verify that
+(1) the individual wrote the document and (2) the third party hosted the
+individual's public key and therefore trusts the individual.
+
+This can be used more broadly, as the third party could be social media
+websites who automatically generate and host key pairs for their users, and the
+individuals could be the users. So you can see an image and know that Joe
+Blogs uploaded this photo to `ShareIt.com`.
+
+- The Provenance Protocol allows people to _delegate_ your trust to a third party
+- The Provenance Protocol allows good-faith actors to prove that they created a
+  document
+- The Provenance Protocol allows anyone to prove that they created an
+  image/document, thereby making suspicious any images/documents without such proof.
+- The Provenance Protocol proves that some URL contains the public key for the
+  person who signed the document in question. This is powerful
+  - This is equivalent to signing a document with your private key in the
+    regular case where you upload your public key to a public key store
+  - But it also allows that URL to be a (hopefully authoritative) third party
+    who can act as surety for whoever signed the document. If some random
+    person came out with an unbelievable photo and signed it with their
+    private key, then that's a bit suspicious and them having signed it isn't
+    worth much. But if that
+    random person went to `$NEWS_ORGANISATION` who independently verified
+    their story and
+
+---
+
+good actors should want to sign the things they produce.
+give example of this _not_ being a proof of trust, just a list of people you
+can point at
+
+- Why is the Provenance protocol better than just signing a document with your
+  private key?
+  - it works transparently for images using metadata
+  - it's embedded in the file itself, no need to keep track of additional
+    metadata
 
 Provenance is a protocol for securely specifying the historical ownership of
 images, videos, and more. It conclusively tells you whether or not an image was
@@ -117,9 +231,17 @@ digital sleuthing to try and figure out if the photo's been doctored.
 # How to I implement it? (as a developer)
 
 This rust crate provides the reference implementation of the provenance
-protocol. You can `cargo add provenance-rs` to use it as a library.
+protocol. You can use it as a rust library:
 
-> TODO: or `cargo install provenance-rs` to install it as a command line tool.
+```
+cargo add provenance-rs
+```
+
+Or download the CLI tool:
+
+```
+cargo install provenance-rs
+```
 
 # Inspiration
 
@@ -129,3 +251,13 @@ where healthy cells showcase fragments of their internals to passing immune
 cells as proof that the healthy cells haven't been taken over by a virus.
 Passing immune cells kill any cells that either 1) aren't presenting any
 internal fragments or 2) are presenting the wrong sort of internal fragments.
+
+# FAQ
+
+## I don't want my identity to be attached to everything
+
+That's OK! Provenance is not a requirement, and you can always remove the
+provenance data or choose not to add it in the first place. Think of it like
+signing your name at the end of a document. You don't bother signing every
+little grocery note or post-it, but you _intentionally_ sign some things (like
+official letters or instructions) so people know who it's coming from.

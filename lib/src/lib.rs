@@ -356,6 +356,7 @@ pub fn format_doc(url: &str, encoded_signature: Base64Signature, doc: &str) -> S
 #[cfg(test)]
 mod tests {
     use super::*;
+    use exif::{Exif, Reader};
     use rand::rngs::OsRng;
     use rand::Rng;
 
@@ -723,6 +724,25 @@ mod tests {
                 assert_eq!(signer_details.verification_key, key.verifying_key());
             }
         }
+    }
+
+    #[test]
+    fn exif_testing() -> Result<(), Box<dyn std::error::Error>> {
+        let file = std::fs::File::open("tests/20240317_213020.jpg").unwrap();
+        let Ok(exif_data) = Reader::new().read_from_container(&mut std::io::BufReader::new(&file))
+        else {
+            return Err("No Exif data found".into());
+        };
+
+        for f in exif_data.fields() {
+            println!(
+                "{:30} {:80} {:25}",
+                f.tag,
+                f.display_value().with_unit(&exif_data),
+                f.ifd_num,
+            );
+        }
+        Ok(())
     }
 
     #[test]
