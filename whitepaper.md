@@ -137,9 +137,9 @@ well-established cryptographic techniques and standardised metadata formats.
 
 # Technical Details
 
-The provenance protocol provides a standardised way of embedding an ED25519
+The provenance protocol provides a standardised way of embedding an [ED25519](https://en.wikipedia.org/wiki/EdDSA#Ed25519)
 signature into the metadata of various file formats and of verifying that
-signature against it's public key counterpart.
+signature against its public key counterpart.
 
 The exact method of embedding a signature into a file format's metadata will
 necessarily depend on the file format. Common image file formats (JPEG, PNG)
@@ -152,15 +152,18 @@ Given a file format that allows the embedding of an arbitrary sequence of
 bytes as metadata, the provenance signature line requires the following
 information (with fields separated by single space `0x20` bytes:
 
-1. The bytes `7e 7e f0 9f 94 8f` indicate the start-of-provenance.
+1. The bytes `7e 7e f0 9f 94 8f` indicate the start-of-provenance 🔏.
 2. A single space character `0x20`.
-3. The semantic version number of the provenance protocol, for example
+3. The [semantic version](https://semver.org/) of the provenance protocol, for example
    `0.1.0`.
 4. A single space character `0x20`.
 5. The internet URL where the verifier can find the public key associated with
    this signature.
 6. A single space character `0x20`.
-7. The base64-encoded signature of the piece of content with all provenance
+7. The base64-encoded\footnote{
+   specifically, URL-safe base64 alphabet is used with \texttt{-} and \texttt{\_}, (as specified in \href{https://datatracker.ietf.org/doc/html/rfc4648
+   }{RFC 4648}), using \texttt{=} as the padding character.
+   } signature of the piece of content with all provenance
    information removed.
 8. A single space character `0x20`.
 9. The bytes `f0 9f 94 8f 7e 7e 0a` indicate the end-of-provenance.
@@ -230,7 +233,7 @@ _(work in progress)_
 
 - Stripping of metadata: Many social media websites strip metadata from images,
   destroying the provenance information.
-- Bad actors can still sign AI generated content as their own. At it's core,
+- Bad actors can still sign AI generated content as their own. At its core,
   the provenance protocol is a method for centralising trust in a way that is
   easier for humans to verify manually.
 
