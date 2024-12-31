@@ -17,7 +17,7 @@ keywords = ["protocol", "cryptography", "encoding", "decoding", "metadata"]
 kamadak-exif = "0.5.5"
 anyhow = "1.0.80"
 base64 = "0.22.0"
-ed25519-dalek = { version = "2.1.1", features = ["rand_core"] }
+ed25519-dalek = { version = "2.1.1", features = ["pkcs8", "rand_core"] }
 rand = "0.8.5"
 thiserror = "1.0.57"
 reqwest = { version = "0.11.26", features = ["json", "blocking", "serde_json"] }
@@ -25,6 +25,7 @@ serde = { version = "1.0.197", features = ["serde_derive"] }
 clap = { version = "4.5.3", features = ["derive"] }
 clap_derive = "4.5.3"
 colored = "2.1.0"
+little_exif = "0.6.2"
 
 [lib]
 name = "provenance_rs"
@@ -33,3 +34,10 @@ path = "src/lib.rs"
 [[bin]]
 name = "pvnc"
 path = "src/cli.rs"
+
+[dev-dependencies]
+insta = { version = "1.41.1", features = ["yaml"] }
+
+[profile.dev.package]
+insta.opt-level = 3
+similar.opt-level = 3
