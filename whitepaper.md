@@ -92,33 +92,20 @@ work with metadata.
 
 ## Cryptographic Signatures
 
-Asymmetric cryptography is a method of transforming a message into an
-unreadable form using one key (typically called the secret or private key) in
-such a way that this unreadable form can be converted back into the original
-message only by using the public key associated with the original secret key.
-This is the basis for the secure internet that allows communication without
-worry about bad actors reading the communication.
+Asymmetric key cryptography uses a pair of keys: a public key and a private
+key. In the context of digital signatures, the private key is used by the
+signer to generate a signature for a message, while the public key allows
+anyone to verify that signature.
 
-The key pair (consisting of the secret key and the public key) is generated
-together, and then the secret key is kept secret while the public key is made
-publicly available. If Alice wanted to send Bob a message, Alice would encrypt
-the message with Bob's public key, and then only Bob's private key would be
-able to decrypt the message.
+When a document is signed, the private key creates a unique signature that
+reflects the content of the message. This signature is attached to the document
+and can be verified by anyone who possesses the corresponding public key. If
+the content of the document is altered in any way, the signature will no longer
+match, indicating that the integrity of the message has been compromised.
 
-The technical implementation of asymmetric cryptography allows for the public
-key to be used as a secret key, and vice versa. This enables the creation of a
-cryptographically secure "signature". If Bob wanted to send a message to Alice
-and also prove to Alice 1. that he sent the message and 2. that the message has
-not been tampered with, Bob can encrypt the original message\footnote{
-Note that in practice, the original message is passed through a hashing
-function to create a fixed-length message "digest", and then this digest is
-what is encrypted.
-}
-with his private key, and send this private-key-encrypted message along with
-the original message. Alice can then decrypt the private-key-encrypted message
-using Bob's public key, and compare the decrypted message against the received
-message. If they match, then Alice must have the message that Bob sent, and
-Alice can know that Bob did indeed send the message.
+Digital signatures thus ensure both the authenticity of the signer and the
+integrity of the message, providing confidence that the content has not been
+tampered with and that it genuinely comes from the claimed author.
 
 # Solution
 
@@ -152,7 +139,7 @@ Given a file format that allows the embedding of an arbitrary sequence of
 bytes as metadata, the provenance signature line requires the following
 information (with fields separated by single space `0x20` bytes:
 
-1. The bytes `7e 7e f0 9f 94 8f` indicate the start-of-provenance 🔏.
+1. The bytes `7e 7e f0 9f 94 8f` indicate the start-of-provenance.
 2. A single space character `0x20`.
 3. The [semantic version](https://semver.org/) of the provenance protocol, for example
    `0.1.0`.
@@ -236,6 +223,8 @@ _(work in progress)_
 - Bad actors can still sign AI generated content as their own. At its core,
   the provenance protocol is a method for centralising trust in a way that is
   easier for humans to verify manually.
+- If companies compress an image, the provenance will be corrupted
+- What about "layering" provenance?
 
 # Security and Bug Reports
 
