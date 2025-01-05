@@ -10,6 +10,8 @@ title: The Provenance Protocol
 subtitle: A backwards-compatible, cryptographically-secure, method for AI image identification
 author: Boyd Kane\footnote{boyd r kane at google's mail service dot com, or @beyarkay online}
 date: \today
+# TODO: What, philosophically, should be signed? Just the content, or the metadata as well?
+# TODO: Look into EXIF, IPTC for general metadata solutions
 ---
 
 # Introduction
@@ -161,6 +163,8 @@ with ink pen" emoji).
 For example, the provenance line might look something like:
 
 ```
++--------+-------------------------+-------------------------+-----------------+
+| offset | bytes 0..7              | bytes 8..15             | ascii           |
 +--------+-------------------------+-------------------------+--------+--------+
 |00000000| 7e 7e f0 9f 94 8f 20 30 | 2e 31 2e 30 20 68 74 74 |~~×××× 0|.1.0 htt|
 |00000010| 70 73 3a 2f 2f 65 78 61 | 6d 70 6c 65 2e 63 6f 6d |ps://exa|mple.com|
@@ -225,11 +229,30 @@ _(work in progress)_
   easier for humans to verify manually.
 - If companies compress an image, the provenance will be corrupted
 - What about "layering" provenance?
+- Privacy. Because the public key is hosted at a creator-chosen URL, it's
+  possible to track who's looking at which photo. Not sure if I buy this, since
+  verification will mostly be done at the platform level
+- The web server is possible a weak point, because the public key could be
+  pulled at a later date, thereby retracting provenance. Maybe this is good (if
+  the news org realises they made a mistake) maybe this is bad (if the org
+  retracts provenance in order to try discredit someone).
+- False attribution: Can a vindictive person falsely attribute some content to
+  a person in order to incriminate them?
+- How exactly would the public key hosting work? Do companies host one keypair
+  for each user? One keypair per org, just one for the whole company?
+
+# Alternatives
+
+- C2PA: Pedigree refers to the elements that were used to create the final result and would be a better term for what C2PA is trying to do, but they went with provenance
+  - See https://www.hackerfactor.com/blog/index.php?/archives/1010-C2PAs-Butterfly-Effect.html
+  - C2PA doesn't actually give a link back to the signer, afaict
+  - C2PA information is _massive_. Easily doubles the size of the file
+    (unless you "sidecar" the metadata)
 
 # Security and Bug Reports
 
 Please report all security vulnerabilities to boydrkane at google's mail
-server dot com, and file all bug reports via the GitHub
+server dot comm, and file all bug reports via the GitHub
 repository [`beyarkay/provenance-rs`](https://github.com/beyarkay/provenance-rs/).
 
 # Conclusion
